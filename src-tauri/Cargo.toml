@@ -1,0 +1,39 @@
+[package]
+name = "tauri-app"
+version = "0.1.0"
+description = "A Tauri App"
+authors = ["you"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "tauri_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2.*", features = [] }
+tauri-plugin-opener = "2.*"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# --- Add your proxy dependencies below ---
+hyper = { version = "0.14", features = ["full"] } # Use a version compatible with Tauri's Tokio
+tokio = { version = "1", features = ["full"] }   # Use a version compatible with Tauri's Tokio, ensure 'full' or needed features like 'rt', 'macros', 'net', 'sync'
+rusqlite = { version = "0.31", features = ["bundled", "uuid"] } # Use bundled feature for easier packaging, add "uuid" feature
+uuid = { version = "1.8", features = ["v4"] }
+futures = "0.3" # For stream processing
+log = "0.4" # Optional: for better logging
+env_logger = "0.11" # Optional: for better logging
+thiserror = "1.0" # Optional: for better error handling
+
+[features]
+# this feature is used for production builds or when `devPath` points to the filesystem
+# DO NOT REMOVE!!
+custom-protocol = ["tauri/custom-protocol"]
