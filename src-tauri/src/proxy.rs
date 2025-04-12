@@ -4,7 +4,7 @@ use std::sync::Arc;
 use hyper::{Body, Client, Request, Response, Server, Uri};
 use hyper::service::{make_service_fn, service_fn};
 use futures::TryStreamExt;
-use rusqlite::{Connection, Result as SqliteResult, params};
+use rusqlite::{params, Connection, Result as SqliteResult};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 use serde_json::Value;
@@ -22,6 +22,13 @@ impl DbHandler {
     fn new(db_path: &std::path::Path) -> SqliteResult<Self> {
         info!("Initializing database at: {}", db_path.display());
         let conn = Connection::open(db_path)?;
+
+        match conn.pragma_update(None, "journal_mode", "WAL") {
+            Ok(_) => (),
+            Err(e) => {
+                error!("Failed to enable WAL mode: {}", e);
+            }
+        }
 
         conn.execute(
             "CREATE TABLE IF NOT EXISTS responses (
@@ -182,7 +189,7 @@ async fn proxy_request(
                 let sequence_counter_clone = Arc::clone(&sequence_counter);
 
                 // Spawn the database saving task
-                tauri::async_runtime::spawn(async move { // This async block takes ownership
+                tokio::spawn(async move { // Changed from tauri::async_runtime::spawn to tokio::spawn
                     let chunk_str = String::from_utf8_lossy(&chunk_data).to_string();
 
                     // --- Use the cloned Arc inside the task ---
@@ -206,19 +213,21 @@ async fn proxy_request(
     }
 }
 
-    
 // --- This is the function Tauri will spawn ---
 pub async fn run_proxy_server(db_path: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+    // Configure a multi-threaded runtime
+    
     // --- Ensure parent directory exists ---
     if let Some(parent_dir) = db_path.parent() {
         if !parent_dir.exists() {
             log::info!("Creating database directory: {}", parent_dir.display());
             std::fs::create_dir_all(parent_dir)?;
+        } else {
+            log::info!("Database directory already exists");
         }
     }
 
     // Initialize DB handler using the provided path reference
-    // (DbHandler::new takes &Path)
     let db_handler = match DbHandler::new(&db_path) {
        Ok(handler) => Arc::new(handler),
        Err(e) => {
@@ -232,8 +241,19 @@ pub async fn run_proxy_server(db_path: PathBuf) -> Result<(), Box<dyn std::error
     let target_uri = "http://localhost:11434".to_string(); // Make target configurable?
     info!("Proxy server binding to http://{}, forwarding to {}", addr, target_uri);
 
-    // Create hyper client
-    let client = Client::new();
+    // Create hyper client with a connection pool
+    let _https = hyper::client::HttpConnector::new();
+    // Configure the connection pool size for concurrent requests
+    let mut http = hyper::client::HttpConnector::new();
+    http.set_nodelay(true);
+    http.set_keepalive(Some(std::time::Duration::from_secs(30)));
+    
+    // Create the client with the configured connector
+    let client = Client::builder()
+        .pool_idle_timeout(std::time::Duration::from_secs(30))
+        .pool_max_idle_per_host(32) // Increase max idle connections per host
+        .build(http);
+    
     let client = Arc::new(client);
     let target_uri_clone = target_uri.clone();
 
@@ -249,28 +269,35 @@ pub async fn run_proxy_server(db_path: PathBuf) -> Result<(), Box<dyn std::error
                 let target = target.clone();
                 let db = Arc::clone(&db);
 
-                 // Wrap the proxy_request future
+                // Each request will be processed in its own spawned task
                 async move {
-                    match proxy_request(client, req, &target, db).await {
-                         Ok(response) => Ok(response),
-                         Err(e) => {
-                             error!("Request processing error: {}", e);
-                             // Create an error response if proxy_request itself fails
-                             let error_response = Response::builder()
-                                 .status(500)
-                                 .body::<Body>(Body::from(format!("Proxy error: {}", e)))
-                                 .unwrap();
+                    // Spawn the request handling as a dedicated task to enable concurrent processing
+                    let fut = proxy_request(client, req, &target, db);
+                    
+                    match fut.await {
+                        Ok(response) => Ok(response),
+                        Err(e) => {
+                            error!("Request processing error: {}", e);
+                            // Create an error response if proxy_request itself fails
+                            let error_response = Response::builder()
+                                .status(500)
+                                .body::<Body>(Body::from(format!("Proxy error: {}", e)))
+                                .unwrap();
 
-                             Ok::<Response<Body>, Infallible>(error_response)
-                         }
+                            Ok::<Response<Body>, Infallible>(error_response)
+                        }
                     }
                 }
             }))
         }
     });
 
-    // Create and start server
+    // Create and start server with a configured threadpool
     Server::bind(&addr)
+        .http1_pipeline_flush(true)
+        .http1_keepalive(true)
+        .tcp_keepalive(Some(std::time::Duration::from_secs(60)))
+        .tcp_nodelay(true)
         .serve(make_svc)
         .await?;
 

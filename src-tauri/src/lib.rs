@@ -1,16 +1,15 @@
-// lib.rs
-use tauri::Manager;
 use std::error::Error;
+use tauri::Manager;
+use tauri_plugin_log::Builder as LogPluginBuilder;
 
 pub mod commands;
 mod proxy;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    env_logger::init();
-    
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(LogPluginBuilder::new().build())
         .invoke_handler(tauri::generate_handler![
             commands::greet,
             // Add any other commands here
@@ -27,6 +26,8 @@ pub fn run() {
             let db_path = app_data_dir.join("responses.db");
             log::info!("Database path resolved to: {}", db_path.display());
             let db_path_clone = db_path.clone();
+
+            // log::info!("Using absolute database path: {}", db_path_clone.canonicalize()?.display());
             
             // Spawn the proxy server task
             tauri::async_runtime::spawn(async move {

@@ -32,6 +32,7 @@ futures = "0.3" # For stream processing
 log = "0.4" # Optional: for better logging
 env_logger = "0.11" # Optional: for better logging
 thiserror = "1.0" # Optional: for better error handling
+tauri-plugin-log = "~2.0"
 
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem
