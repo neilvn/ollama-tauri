@@ -18,7 +18,6 @@ struct DbHandler {
 }
 
 impl DbHandler {
-    // Modified new to take a path potentially
     fn new(db_path: &std::path::Path) -> SqliteResult<Self> {
         info!("Initializing database at: {}", db_path.display());
         let conn = Connection::open(db_path)?;
@@ -61,7 +60,7 @@ impl DbHandler {
         Ok(DbHandler { conn: Mutex::new(conn) })
     }
 
-     // Add error logging to initialize_response
+    // Add error logging to initialize_response
     async fn initialize_response(&self, response_id: &str) -> SqliteResult<()> {
         match self.conn.lock().await.execute(
             "INSERT INTO responses (response_id, is_complete) VALUES (?, 0)
@@ -135,6 +134,7 @@ async fn proxy_request(
     let path_and_query = req.uri().path_and_query()
         .map(|x| x.as_str())
         .unwrap_or("");
+
     let uri_string = format!("{}{}", target, path_and_query);
     let printable_uri = uri_string.clone();
 
@@ -143,6 +143,7 @@ async fn proxy_request(
         error!("Failed to create target URI '{}': {}", printable_uri, e);
         io::Error::new(io::ErrorKind::InvalidInput, e) // Convert to io::Error
     }).unwrap();
+
     req.headers_mut().remove("host");
 
     if !req.headers().contains_key("content-type") && req.method() == hyper::Method::POST {
@@ -243,7 +244,6 @@ pub async fn run_proxy_server(db_path: PathBuf) -> Result<(), Box<dyn std::error
 
     // Create hyper client with a connection pool
     let _https = hyper::client::HttpConnector::new();
-    // Configure the connection pool size for concurrent requests
     let mut http = hyper::client::HttpConnector::new();
     http.set_nodelay(true);
     http.set_keepalive(Some(std::time::Duration::from_secs(30)));

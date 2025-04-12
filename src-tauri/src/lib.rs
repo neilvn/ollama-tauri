@@ -26,8 +26,6 @@ pub fn run() {
             let db_path = app_data_dir.join("responses.db");
             log::info!("Database path resolved to: {}", db_path.display());
             let db_path_clone = db_path.clone();
-
-            // log::info!("Using absolute database path: {}", db_path_clone.canonicalize()?.display());
             
             // Spawn the proxy server task
             tauri::async_runtime::spawn(async move {
